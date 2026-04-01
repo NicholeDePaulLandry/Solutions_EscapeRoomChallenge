@@ -94,6 +94,7 @@
                             class="w-full border-2 rounded-2xl px-6 py-4 text-lg outline-none transition-all border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                         >
                         <button 
+                            type="button"
                             onclick="checkAnswer()"
                             class="w-full bg-slate-900 text-white font-black py-4 rounded-2xl hover:bg-blue-600 transition-all shadow-lg active:scale-95"
                         >
@@ -138,12 +139,10 @@
             { topic: "Terminology", q: "In a solution of salt water, what is the 'salt' specifically called?", a: "solute" },
             { topic: "Identification", q: "In a mixture of 5g sugar and 100g water, which substance is the solute?", a: "sugar" },
             { topic: "Identification", q: "In a mixture of 10mL lemon juice and 200mL water, which substance is the solvent?", a: "water" },
-            { topic: "Identification", q: "In the alloy 'Brass', the substance present in the largest amount is the ________.", a: "solvent" },
             { topic: "Identification", q: "Air is a solution. Since Nitrogen makes up 78% of air, Nitrogen is considered the ________.", a: "solvent" },
             { topic: "Identification", q: "In a bottle of 70% Isopropyl Alcohol, the 30% portion that is water is considered the ________.", a: "solute" },
             { topic: "Identification", q: "In carbonated water, the dissolved Carbon Dioxide gas is the ________.", a: "solute" },
             { topic: "Identification", q: "Humid air contains water vapor dissolved in dry air. In this case, the water vapor is the ________.", a: "solute" },
-            { topic: "Identification", q: "In 'Steel', small amounts of Carbon are dissolved in Iron. Iron is the ________.", a: "solvent" },
             { topic: "Solubility Factors", q: "Increasing the temperature of a liquid solvent usually makes solid solutes dissolve ________.", a: "faster" },
             { topic: "Solubility Factors", q: "Crushing a solute into a fine powder increases the ________ area.", a: "surface" },
             { topic: "Solubility Factors", q: "The formal chemical term for stirring a solution is ________.", a: "agitation" },
@@ -189,11 +188,13 @@
         let currentIndex = 0;
         let startTime = null;
         let timerInterval = null;
+        let isTransitioning = false;
 
         // Game Functions
         window.startGame = function() {
             gameQuestions = [...questionPool].sort(() => Math.random() - 0.5).slice(0, QUESTION_COUNT);
             currentIndex = 0;
+            isTransitioning = false;
             startTime = Date.now();
             
             document.getElementById('landing-state').classList.add('hidden');
@@ -227,16 +228,21 @@
             document.getElementById('progress-bar').style.width = `${progress}%`;
             document.getElementById('answer-input').value = '';
             document.getElementById('feedback-text').classList.add('hidden');
+            
+            isTransitioning = false;
             document.getElementById('answer-input').focus();
         }
 
         window.checkAnswer = function() {
+            if (isTransitioning) return;
+
             const userInput = document.getElementById('answer-input').value.trim().toLowerCase();
             const correctAnswer = gameQuestions[currentIndex].a.toLowerCase();
             const feedback = document.getElementById('feedback-text');
             const card = document.getElementById('question-card');
 
             if (userInput === correctAnswer) {
+                isTransitioning = true;
                 feedback.textContent = "✅ Station Cleared!";
                 feedback.className = "mt-4 text-center font-bold text-green-600";
                 feedback.classList.remove('hidden');
@@ -268,8 +274,11 @@
         }
 
         // Global Listeners
-        document.getElementById('answer-input').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') checkAnswer();
+        document.getElementById('answer-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault(); // Stop default browser behavior
+                checkAnswer();
+            }
         });
     </script>
 </body>
