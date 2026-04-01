@@ -14,16 +14,12 @@
             80% { transform: translateX(12px); }
         }
         .animate-shake { animation: shake 0.35s ease-in-out; }
-        .glass-panel {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 font-sans min-h-screen">
 
     <div id="app" class="min-h-screen flex flex-col">
-        <!-- Content will be injected here by JavaScript -->
+        <!-- Content injected by JS -->
     </div>
 
     <script>
@@ -99,7 +95,7 @@
             return `${mins}:${secs.toString().padStart(2, '0')}`;
         }
 
-        // --- Render Views ---
+        // --- Render Functions ---
         function render() {
             if (state.gameState === 'landing') {
                 app.innerHTML = `
@@ -110,8 +106,7 @@
                             <p class="text-slate-500 font-bold text-xs uppercase tracking-widest mb-10">25 Randomized Stations</p>
                             <div class="space-y-4">
                                 <input id="nameInput" type="text" placeholder="Scientist Name..." 
-                                    class="w-full px-6 py-4 rounded-2xl border-2 border-slate-100 focus:border-blue-500 outline-none text-center text-lg font-bold"
-                                    value="${state.name}">
+                                    class="w-full px-6 py-4 rounded-2xl border-2 border-slate-100 focus:border-blue-500 outline-none text-center text-lg font-bold">
                                 <button onclick="startGame()" class="w-full bg-slate-900 text-white font-black py-4 rounded-2xl hover:bg-blue-600 transition-all active:scale-95 shadow-xl shadow-slate-900/20">
                                     INITIALIZE CHALLENGE
                                 </button>
@@ -119,7 +114,9 @@
                         </div>
                     </div>
                 `;
-                document.getElementById('nameInput').addEventListener('input', (e) => state.name = e.target.value);
+                const ni = document.getElementById('nameInput');
+                ni.value = state.name;
+                ni.addEventListener('input', (e) => state.name = e.target.value);
             } 
             
             else if (state.gameState === 'playing') {
@@ -161,7 +158,7 @@
                 `;
                 const input = document.getElementById('ansInput');
                 input.focus();
-                input.onkeydown = (e) => e.key === 'Enter' && checkAnswer();
+                input.onkeydown = (e) => { if(e.key === 'Enter') checkAnswer(); };
             } 
             
             else if (state.gameState === 'finished') {
@@ -181,7 +178,7 @@
             }
         }
 
-        // --- Logic ---
+        // --- Game Logic ---
         function startGame() {
             if (!state.name.trim()) return;
             state.shuffled = [...questionPool].sort(() => Math.random() - 0.5).slice(0, 25);
@@ -208,6 +205,7 @@
 
             if (userVal === correctVal) {
                 feedback.innerHTML = `<span class="text-green-600 animate-pulse">✅ Lock Disengaged!</span>`;
+                input.disabled = true; // Prevent further typing during transition
                 setTimeout(() => {
                     if (state.currentIndex + 1 < state.shuffled.length) {
                         state.currentIndex++;
@@ -222,11 +220,12 @@
             } else {
                 feedback.innerHTML = `<span class="text-red-600">❌ Access Denied!</span>`;
                 card.classList.add('animate-shake', 'ring-4', 'ring-red-100');
-                setTimeout(() => card.classList.remove('animate-shake', 'ring-4', 'ring-red-100'), 400);
+                setTimeout(() => {
+                    card.classList.remove('animate-shake', 'ring-4', 'ring-red-100');
+                }, 400);
             }
         }
 
-        // Initialize
         window.onload = render;
     </script>
 </body>
