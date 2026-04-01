@@ -10,6 +10,7 @@
         
         body {
             font-family: 'Inter', sans-serif;
+            -webkit-tap-highlight-color: transparent;
         }
 
         @keyframes shake {
@@ -53,7 +54,12 @@
                 <div class="mt-10 pt-6 border-t border-slate-100">
                     <h3 class="text-xs font-black text-slate-400 uppercase tracking-tighter mb-4">Fastest Chemists</h3>
                     <div id="leaderboard-list" class="space-y-2">
-                        <p class="text-xs text-slate-300 italic">Syncing records...</p>
+                        <div class="animate-pulse flex space-x-4">
+                            <div class="flex-1 space-y-2 py-1">
+                                <div class="h-4 bg-slate-200 rounded w-3/4"></div>
+                                <div class="h-4 bg-slate-200 rounded"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -93,13 +99,14 @@
                     </div>
 
                     <h2 id="display-question" class="text-xl md:text-2xl text-slate-800 font-semibold mb-8 leading-relaxed">
-                        Question text goes here?
+                        ---
                     </h2>
 
                     <div class="space-y-4">
                         <input 
                             type="text" 
                             id="answer-input"
+                            autocomplete="off"
                             placeholder="Type your answer here..."
                             class="w-full border-2 rounded-2xl px-6 py-4 text-lg outline-none transition-all border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                         >
@@ -126,7 +133,9 @@
                     <h3 class="text-xl font-bold mb-6 flex items-center text-slate-300">
                         <span class="mr-3 text-blue-400">⚡</span> FASTEST OPERATORS
                     </h3>
-                    <div id="final-leaderboard" class="space-y-3"></div>
+                    <div id="final-leaderboard" class="space-y-3">
+                        <p class="text-center text-slate-500 animate-pulse">Calculating rankings...</p>
+                    </div>
                 </div>
 
                 <button 
@@ -142,10 +151,11 @@
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        // Global Game State
+        // Constants
+        const QUESTION_COUNT = 25;
         const questionPool = [
             { topic: "Terminology", q: "In a solution of salt water, what is the 'water' specifically called?", a: "solvent" },
             { topic: "Terminology", q: "In a solution of salt water, what is the 'salt' specifically called?", a: "solute" },
@@ -204,19 +214,23 @@
         let timerInterval = null;
         let currentUser = null;
 
-        // Firebase Init
+        // Firebase Initialization
         const firebaseConfig = JSON.parse(__firebase_config);
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'chem-escape-room';
 
-        // Auth
-        async function initAuth() {
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                await signInWithCustomToken(auth, __initial_auth_token);
-            } else {
-                await signInAnonymously(auth);
+        // Background Authentication (Non-blocking)
+        async function backgroundAuth() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (err) {
+                console.warn("Auth background retry needed:", err);
             }
         }
 
@@ -225,7 +239,8 @@
             if (user) syncLeaderboard();
         });
 
-        initAuth();
+        // Initialize background auth immediately
+        backgroundAuth();
 
         // Game Functions
         window.startGame = function() {
@@ -233,7 +248,8 @@
             const name = nameInput.value.trim();
             if (!name) return;
 
-            gameQuestions = [...questionPool].sort(() => Math.random() - 0.5).slice(0, 25);
+            // Start logic is now purely local and instant
+            gameQuestions = [...questionPool].sort(() => Math.random() - 0.5).slice(0, QUESTION_COUNT);
             currentIndex = 0;
             startTime = Date.now();
             
@@ -260,11 +276,11 @@
 
         function updateQuestionUI() {
             const q = gameQuestions[currentIndex];
-            const progress = (currentIndex / 25) * 100;
+            const progress = (currentIndex / QUESTION_COUNT) * 100;
 
             document.getElementById('display-topic').textContent = q.topic;
             document.getElementById('display-question').textContent = q.q;
-            document.getElementById('display-station-count').textContent = `${currentIndex + 1} / 25`;
+            document.getElementById('display-station-count').textContent = `${currentIndex + 1} / ${QUESTION_COUNT}`;
             document.getElementById('display-progress-pct').textContent = `${Math.round(progress)}%`;
             document.getElementById('progress-bar').style.width = `${progress}%`;
             document.getElementById('answer-input').value = '';
@@ -272,7 +288,7 @@
             document.getElementById('answer-input').focus();
         }
 
-        window.checkAnswer = async function() {
+        window.checkAnswer = function() {
             const userInput = document.getElementById('answer-input').value.trim().toLowerCase();
             const correctAnswer = gameQuestions[currentIndex].a.toLowerCase();
             const feedback = document.getElementById('feedback-text');
@@ -287,7 +303,7 @@
                     setTimeout(() => {
                         currentIndex++;
                         updateQuestionUI();
-                    }, 600);
+                    }, 400); // Slightly faster transition
                 } else {
                     finishGame();
                 }
@@ -309,17 +325,27 @@
             document.getElementById('finished-state').classList.remove('hidden');
             document.getElementById('final-time-display').textContent = `Total Time: ${formatTime(duration)}`;
 
+            // Save happens in background, doesn't block UI
             if (currentUser) {
-                try {
-                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'), {
-                        name,
-                        seconds: duration,
-                        timestamp: Date.now(),
-                        uid: currentUser.uid
-                    });
-                } catch (e) {
-                    console.error("Save error:", e);
-                }
+                saveScore(name, duration);
+            } else {
+                // Wait briefly for auth if user finished extremely fast
+                setTimeout(() => {
+                    if (currentUser) saveScore(name, duration);
+                }, 2000);
+            }
+        }
+
+        async function saveScore(name, seconds) {
+            try {
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'), {
+                    name,
+                    seconds,
+                    timestamp: Date.now(),
+                    uid: currentUser.uid
+                });
+            } catch (e) {
+                console.error("Delayed save failed:", e);
             }
         }
 
@@ -351,10 +377,10 @@
 
                 document.getElementById('leaderboard-list').innerHTML = listHtml || '<p class="text-xs text-slate-300 italic">No records yet.</p>';
                 document.getElementById('final-leaderboard').innerHTML = finalHtml;
-            });
+            }, (err) => console.error("Leaderboard sync error:", err));
         }
 
-        // Enter key listener
+        // Global Listeners
         document.getElementById('answer-input').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') checkAnswer();
         });
