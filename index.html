@@ -1,333 +1,366 @@
-import React, { useState, useEffect } from 'react';
-import { initializeApp } from 'firebase/app';
-import { 
-  getFirestore, 
-  collection, 
-  addDoc, 
-  onSnapshot, 
-  query 
-} from 'firebase/firestore';
-import { 
-  getAuth, 
-  signInAnonymously, 
-  signInWithCustomToken, 
-  onAuthStateChanged 
-} from 'firebase/auth';
-
-// --- FIREBASE CONFIGURATION ---
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'chem-escape-room';
-
-// Master pool of solid-solubility, concentration, and identification questions
-const questionPool = [
-    { topic: "Terminology", q: "In a solution of salt water, what is the 'water' specifically called?", a: "solvent" },
-    { topic: "Terminology", q: "In a solution of salt water, what is the 'salt' specifically called?", a: "solute" },
-    { topic: "Identification", q: "In a mixture of 5g sugar and 100g water, which substance is the solute?", a: "sugar" },
-    { topic: "Identification", q: "In a mixture of 10mL lemon juice and 200mL water, which substance is the solvent?", a: "water" },
-    { topic: "Identification", q: "In the alloy 'Brass' (a solid solution of copper and zinc), the substance present in the largest amount is the ________.", a: "solvent" },
-    { topic: "Identification", q: "Air is a solution. Since Nitrogen makes up 78% of air, Nitrogen is considered the ________.", a: "solvent" },
-    { topic: "Identification", q: "In a bottle of 70% Isopropyl Alcohol, the 30% portion that is water is considered the ________.", a: "solute" },
-    { topic: "Identification", q: "In carbonated water, the dissolved Carbon Dioxide gas is the ________.", a: "solute" },
-    { topic: "Identification", q: "Humid air contains water vapor dissolved in dry air. In this case, the water vapor is the ________.", a: "solute" },
-    { topic: "Identification", q: "In 'Steel', small amounts of Carbon are dissolved in Iron. Iron is the ________.", a: "solvent" },
-    { topic: "Solubility Factors", q: "Increasing the temperature of a liquid solvent usually makes solid solutes dissolve ________.", a: "faster" },
-    { topic: "Solubility Factors", q: "Crushing a solute into a fine powder increases the ________ area.", a: "surface" },
-    { topic: "Solubility Factors", q: "The formal chemical term for stirring a solution to increase rate of dissolving is ________.", a: "agitation" },
-    { topic: "Molarity", q: "What is the molarity of a solution with 4 moles of solute in 2 liters of solution? (Round to thousandths)", a: "2" },
-    { topic: "Molarity", q: "What is the molarity of a solution with 1 mole of solute in 4 liters of solution? (Round to thousandths)", a: "0.25" },
-    { topic: "Molarity", q: "Calculate molarity: 0.5 moles of NaCl in 0.75 liters of solution. (Round to thousandths)", a: "0.667" },
-    { topic: "Molarity", q: "Calculate molarity: 1.25 moles of solute in 3.5 liters of solution. (Round to thousandths)", a: "0.357" },
-    { topic: "Molarity", q: "Calculate molarity: 0.225 moles of solute in 0.150 liters of solution. (Round to thousandths)", a: "1.5" },
-    { topic: "Molarity", q: "Calculate molarity: 5.6 moles of solute in 2.3 liters of solution. (Round to thousandths)", a: "2.435" },
-    { topic: "Molarity", q: "Calculate molarity: 0.045 moles of solute in 0.020 liters of solution. (Round to thousandths)", a: "2.25" },
-    { topic: "Molarity", q: "Calculate molarity: 2.15 moles of solute in 0.825 liters of solution. (Round to thousandths)", a: "2.606" },
-    { topic: "Molarity", q: "Calculate molarity: 0.88 moles of solute in 1.1 liters of solution. (Round to thousandths)", a: "0.8" },
-    { topic: "Molarity", q: "To calculate molarity, you divide ________ of solute by liters of solution.", a: "moles" },
-    { topic: "General Knowledge", q: "If a substance is able to be dissolved in a specific solvent, it is said to be ________.", a: "soluble" },
-    { topic: "Solubility Rules", q: "All compounds containing the Nitrate (NO₃⁻) ion are always ________.", a: "soluble" },
-    { topic: "Solubility Rules", q: "True or False: Most Carbonates (CO₃²⁻) are insoluble unless paired with Group 1 metals.", a: "true" },
-    { topic: "Solubility Rules", q: "Compounds containing Group 1 metals (like Li⁺, Na⁺, K⁺) are always ________ in water.", a: "soluble" },
-    { topic: "Solubility Rules", q: "Halides (Cl⁻, Br⁻, I⁻) are soluble unless they pair with Silver, Mercury, or ________.", a: "lead" },
-    { topic: "Solubility Rules", q: "Is Silver Chloride (AgCl) soluble or insoluble in water?", a: "insoluble" },
-    { topic: "Solubility Rules", q: "True or False: All Sulfate (SO₄²⁻) compounds are soluble, with no exceptions.", a: "false" },
-    { topic: "Solubility Rules", q: "True or False: Hydroxides (OH⁻) are generally insoluble unless paired with Group 1 metals or Barium.", a: "true" },
-    { topic: "Solubility Rules", q: "True or False: Most Phosphates (PO₄³⁻) are soluble in water.", a: "false" },
-    { topic: "Solubility Rules", q: "True or False: Ammonium (NH₄⁺) salts are always soluble.", a: "true" },
-    { topic: "Solubility Rules", q: "True or False: Silver Nitrate (AgNO₃) is insoluble in water.", a: "false" },
-    { topic: "Solubility Rules", q: "True or False: Lead (II) Iodide (PbI₂) will form a precipitate because it is insoluble.", a: "true" },
-    { topic: "Solubility Rules", q: "True or False: All Acetates (CH₃COO⁻) are soluble.", a: "true" },
-    { topic: "Solubility Rules", q: "True or False: Strontium Sulfate (SrSO₄) is insoluble.", a: "true" },
-    { topic: "Solubility Rules", q: "True or False: Magnesium Sulfide (MgS) is soluble because it is a Group 2 metal.", a: "true" },
-    { topic: "Solubility Rules", q: "True or False: Potassium Hydroxide (KOH) is insoluble.", a: "false" },
-    { topic: "Solubility Rules", q: "True or False: Calcium Carbonate is the main component of seashells because it is insoluble.", a: "true" },
-    { topic: "Solubility Rules", q: "Is Barium Sulfate (BaSO₄) soluble or insoluble?", a: "insoluble" },
-    { topic: "Solubility Curves", q: "A solution containing exactly the maximum amount of solute possible at a given temperature is ________.", a: "saturated" },
-    { topic: "Solubility Curves", q: "A solution containing less than the maximum amount of solute is ________.", a: "unsaturated" },
-    { topic: "Solubility Curves", q: "A solution containing more solute than solvent is ________.", a: "supersaturated" },
-    { topic: "Solubility Curves", q: "On a solubility curve, if the point is ABOVE the line for a specific temperature, the solution is ________.", a: "supersaturated" },
-    { topic: "Solubility Curves", q: "On a solubility curve, if the point is BELOW the line for a specific temperature, the solution is ________.", a: "unsaturated" },
-    { topic: "Solubility Curves", q: "Most solid solutes show ________ solubility as temperature increases.", a: "increased" },
-    { topic: "Solubility Curves", q: "To turn a saturated solution into an unsaturated one, you could ________ the temperature (for most solids).", a: "increase" },
-    { topic: "Solubility Curves", q: "True or False: Saturated solutions can still have undissolved solute sitting at the bottom.", a: "true" }
-];
-
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [name, setName] = useState('');
-  const [gameState, setGameState] = useState('landing'); 
-  const [shuffledQuestions, setShuffledQuestions] = useState([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [userInput, setUserInput] = useState('');
-  const [feedback, setFeedback] = useState({ text: '', color: '' });
-  const [startTime, setStartTime] = useState(null);
-  const [finalTime, setFinalTime] = useState(null);
-  const [leaderboard, setLeaderboard] = useState([]);
-  const [isShaking, setIsShaking] = useState(false);
-
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (err) {
-        console.error("Auth error:", err);
-      }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!user) return;
-    const leaderboardRef = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
-    const unsubscribe = onSnapshot(leaderboardRef, (snapshot) => {
-      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      const sorted = docs.sort((a, b) => a.seconds - b.seconds);
-      setLeaderboard(sorted.slice(0, 10)); 
-    }, (error) => {
-      console.error("Firestore sync error:", error);
-    });
-    return () => unsubscribe();
-  }, [user]);
-
-  const startGame = () => {
-    if (!name.trim()) return;
-    // Selection: Pick 25 random questions from the pool
-    const selected = [...questionPool]
-      .sort(() => Math.random() - 0.5)
-      .slice(0, 25);
-    
-    setShuffledQuestions(selected);
-    setStartTime(Date.now());
-    setGameState('playing');
-    setCurrentIndex(0);
-    setFeedback({ text: '', color: '' });
-  };
-
-  const checkAnswer = async () => {
-    const correctVal = shuffledQuestions[currentIndex].a.toLowerCase();
-    const userVal = userInput.toLowerCase().trim();
-
-    if (userVal === correctVal) {
-      setFeedback({ text: "✅ Lock Disengaged!", color: "text-green-600" });
-      setUserInput('');
-      
-      if (currentIndex + 1 < shuffledQuestions.length) {
-        setTimeout(() => {
-          setCurrentIndex(prev => prev + 1);
-          setFeedback({ text: '', color: '' });
-        }, 600);
-      } else {
-        const endTime = Date.now();
-        const duration = Math.floor((endTime - (startTime || endTime)) / 1000);
-        setFinalTime(duration);
-        setGameState('finished');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Solvent's Secret - Chemistry Escape Room</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
         
-        if (user) {
-          try {
-            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'), {
-              name: name.trim(),
-              seconds: duration,
-              timestamp: Date.now(),
-              uid: user.uid
-            });
-          } catch (e) {
-            console.error("Error saving score:", e);
-          }
+        body {
+            font-family: 'Inter', sans-serif;
         }
-      }
-    } else {
-      setFeedback({ text: "❌ Access Denied!", color: "text-red-600" });
-      setIsShaking(true);
-      setTimeout(() => setIsShaking(false), 500);
-    }
-  };
 
-  const formatTime = (s) => {
-    if (s === null || s === undefined) return "--:--";
-    const mins = Math.floor(s / 60);
-    const secs = s % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  if (gameState === 'landing') {
-    return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans">
-        <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 border border-slate-200 text-center">
-          <div className="text-6xl mb-4">🧪</div>
-          <h1 className="text-3xl font-bold text-slate-800 mb-2">The Solvent's Secret</h1>
-          <p className="text-slate-500 mb-8 text-sm uppercase tracking-widest font-bold tracking-tight">25 Station Randomized Lab</p>
-          
-          <div className="space-y-4">
-            <input 
-              type="text" 
-              placeholder="Enter Your Name..." 
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-6 py-4 rounded-2xl border-2 border-slate-200 focus:border-blue-500 outline-none text-center text-lg font-semibold"
-            />
-            <button 
-              onClick={startGame}
-              disabled={!name.trim()}
-              className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-blue-600 transition-all disabled:opacity-50 shadow-lg active:scale-95"
-            >
-              START COMPETITION
-            </button>
-          </div>
-
-          <div className="mt-10 pt-6 border-t border-slate-100">
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-tighter mb-4">Fastest Chemists</h3>
-            <div className="space-y-2">
-              {leaderboard.length > 0 ? (
-                leaderboard.slice(0, 5).map((entry, i) => (
-                  <div key={entry.id || i} className="flex justify-between text-sm bg-slate-50 p-2 rounded-lg items-center">
-                    <span className="font-bold text-slate-700 truncate max-w-[150px]">{i + 1}. {entry.name}</span>
-                    <span className="font-mono text-blue-600 font-bold">{formatTime(entry.seconds)}</span>
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs text-slate-300 italic">Leaderboard is empty. Be first!</p>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (gameState === 'playing') {
-    const progress = (currentIndex / shuffledQuestions.length) * 100;
-    return (
-      <div className="min-h-screen bg-slate-100 flex flex-col font-sans">
-        <div className="bg-slate-900 text-white py-4 px-6 shadow-lg">
-          <div className="max-w-xl mx-auto flex justify-between items-center">
-            <div>
-               <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Operator</p>
-               <p className="text-md font-bold truncate max-w-[120px]">{name}</p>
-            </div>
-            <div className="text-center">
-               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Progress</p>
-               <p className="text-md font-mono">{Math.round(progress)}%</p>
-            </div>
-            <div className="text-right">
-               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Station</p>
-               <p className="text-md font-mono">{currentIndex + 1} / 25</p>
-            </div>
-          </div>
-          <div className="max-w-xl mx-auto mt-3 bg-white/10 h-1.5 rounded-full overflow-hidden">
-            <div className="bg-blue-500 h-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
-          </div>
-        </div>
-
-        <main className="flex-grow flex items-center justify-center p-4">
-          <div className={`max-w-xl w-full bg-white p-8 rounded-3xl shadow-2xl border border-slate-200 transition-transform ${isShaking ? 'animate-shake border-red-300' : ''}`}>
-            <div className="flex justify-between items-center mb-6">
-              <span className="bg-blue-100 text-blue-700 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-tighter">
-                {shuffledQuestions[currentIndex].topic}
-              </span>
-              <div className="flex space-x-1 text-xs font-mono text-slate-400">
-                TIME: {formatTime(Math.floor((Date.now() - startTime)/1000))}
-              </div>
-            </div>
-
-            <h2 className="text-xl md:text-2xl text-slate-800 font-semibold mb-8 leading-relaxed">
-              {shuffledQuestions[currentIndex].q}
-            </h2>
-
-            <div className="space-y-4">
-              <input 
-                type="text" 
-                value={userInput}
-                onChange={(e) => setUserInput(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && checkAnswer()}
-                placeholder="Type your answer here..."
-                className={`w-full border-2 rounded-2xl px-6 py-4 text-lg outline-none transition-all ${isShaking ? 'border-red-500' : 'border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100'}`}
-                autoFocus
-              />
-              <button 
-                onClick={checkAnswer}
-                className="w-full bg-slate-900 text-white font-black py-4 rounded-2xl hover:bg-blue-600 transition-all shadow-lg active:scale-95"
-              >
-                DISENGAGE LOCK
-              </button>
-            </div>
-            {feedback.text && <p className={`mt-4 text-center font-bold ${feedback.color}`}>{feedback.text}</p>}
-          </div>
-        </main>
-        
-        <style dangerouslySetInnerHTML={{ __html: `
-          @keyframes shake {
+        @keyframes shake {
             0%, 100% { transform: translateX(0); }
             20% { transform: translateX(-10px); }
             40% { transform: translateX(10px); }
             60% { transform: translateX(-10px); }
             80% { transform: translateX(10px); }
-          }
-          .animate-shake { animation: shake 0.3s ease-in-out; }
-        `}} />
-      </div>
-    );
-  }
+        }
+        .animate-shake {
+            animation: shake 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen">
 
-  return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-sans text-white">
-      <div className="max-w-2xl w-full text-center">
-        <div className="text-8xl mb-6">🏅</div>
-        <h2 className="text-5xl font-black mb-2 tracking-tighter">MISSION COMPLETE</h2>
-        <p className="text-blue-400 text-2xl font-mono mb-10">Total Time: {formatTime(finalTime)}</p>
-        
-        <div className="bg-white/5 rounded-3xl p-8 border border-white/10 text-left backdrop-blur-sm">
-          <h3 className="text-xl font-bold mb-6 flex items-center text-slate-300">
-            <span className="mr-3 text-blue-400">⚡</span> FASTEST OPERATORS
-          </h3>
-          <div className="space-y-3">
-            {leaderboard.map((entry, i) => (
-              <div key={entry.id || i} className={`flex justify-between items-center p-4 rounded-xl transition-all ${entry.name === name ? 'bg-blue-600 shadow-lg shadow-blue-500/20' : 'bg-white/5 border border-white/5'}`}>
-                <div className="flex items-center truncate mr-4">
-                  <span className={`w-8 font-mono text-xs ${entry.name === name ? 'text-white/70' : 'text-slate-500'}`}>{i + 1}.</span>
-                  <span className="font-bold text-lg truncate">{entry.name}</span>
-                  {entry.name === name && <span className="ml-3 text-[9px] bg-white text-blue-600 px-2 py-0.5 rounded font-black uppercase">YOU</span>}
+    <div id="app">
+        <!-- Landing Page -->
+        <div id="landing-state" class="min-h-screen flex items-center justify-center p-4">
+            <div class="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 border border-slate-200 text-center">
+                <div class="text-6xl mb-4">🧪</div>
+                <h1 class="text-3xl font-bold text-slate-800 mb-2">The Solvent's Secret</h1>
+                <p class="text-slate-500 mb-8 text-sm uppercase tracking-widest font-bold">25 Station Randomized Lab</p>
+                
+                <div class="space-y-4">
+                    <input 
+                        type="text" 
+                        id="player-name"
+                        placeholder="Enter Your Name..." 
+                        class="w-full px-6 py-4 rounded-2xl border-2 border-slate-200 focus:border-blue-500 outline-none text-center text-lg font-semibold"
+                    >
+                    <button 
+                        onclick="startGame()"
+                        id="start-btn"
+                        class="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-blue-600 transition-all shadow-lg active:scale-95"
+                    >
+                        START COMPETITION
+                    </button>
                 </div>
-                <span className={`font-mono text-xl font-bold flex-shrink-0 ${entry.name === name ? 'text-white' : 'text-blue-400'}`}>{formatTime(entry.seconds)}</span>
-              </div>
-            ))}
-          </div>
+
+                <div class="mt-10 pt-6 border-t border-slate-100">
+                    <h3 class="text-xs font-black text-slate-400 uppercase tracking-tighter mb-4">Fastest Chemists</h3>
+                    <div id="leaderboard-list" class="space-y-2">
+                        <p class="text-xs text-slate-300 italic">Syncing records...</p>
+                    </div>
+                </div>
+            </div>
         </div>
 
-        <button 
-          onClick={() => window.location.reload()}
-          className="mt-12 bg-blue-600 text-white px-12 py-4 rounded-2xl font-black hover:bg-blue-500 transition-all transform hover:scale-105 active:scale-95 shadow-xl shadow-blue-600/30"
-        >
-          START NEW RUN
-        </button>
-      </div>
+        <!-- Playing State -->
+        <div id="playing-state" class="hidden min-h-screen flex flex-col">
+            <div class="bg-slate-900 text-white py-4 px-6 shadow-lg">
+                <div class="max-w-xl mx-auto flex justify-between items-center">
+                    <div>
+                        <p class="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Operator</p>
+                        <p id="display-name" class="text-md font-bold truncate max-w-[120px]">---</p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Progress</p>
+                        <p id="display-progress-pct" class="text-md font-mono">0%</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Station</p>
+                        <p id="display-station-count" class="text-md font-mono">1 / 25</p>
+                    </div>
+                </div>
+                <div class="max-w-xl mx-auto mt-3 bg-white/10 h-1.5 rounded-full overflow-hidden">
+                    <div id="progress-bar" class="bg-blue-500 h-full transition-all duration-300 w-0"></div>
+                </div>
+            </div>
+
+            <main class="flex-grow flex items-center justify-center p-4">
+                <div id="question-card" class="max-w-xl w-full bg-white p-8 rounded-3xl shadow-2xl border border-slate-200 transition-transform">
+                    <div class="flex justify-between items-center mb-6">
+                        <span id="display-topic" class="bg-blue-100 text-blue-700 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-tighter">
+                            TOPIC
+                        </span>
+                        <div id="display-timer" class="flex space-x-1 text-xs font-mono text-slate-400">
+                            TIME: 0:00
+                        </div>
+                    </div>
+
+                    <h2 id="display-question" class="text-xl md:text-2xl text-slate-800 font-semibold mb-8 leading-relaxed">
+                        Question text goes here?
+                    </h2>
+
+                    <div class="space-y-4">
+                        <input 
+                            type="text" 
+                            id="answer-input"
+                            placeholder="Type your answer here..."
+                            class="w-full border-2 rounded-2xl px-6 py-4 text-lg outline-none transition-all border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                        >
+                        <button 
+                            onclick="checkAnswer()"
+                            class="w-full bg-slate-900 text-white font-black py-4 rounded-2xl hover:bg-blue-600 transition-all shadow-lg active:scale-95"
+                        >
+                            DISENGAGE LOCK
+                        </button>
+                    </div>
+                    <p id="feedback-text" class="mt-4 text-center font-bold hidden"></p>
+                </div>
+            </main>
+        </div>
+
+        <!-- Finished State -->
+        <div id="finished-state" class="hidden min-h-screen bg-slate-900 flex items-center justify-center p-4 text-white">
+            <div class="max-w-2xl w-full text-center">
+                <div class="text-8xl mb-6">🏅</div>
+                <h2 class="text-5xl font-black mb-2 tracking-tighter">MISSION COMPLETE</h2>
+                <p id="final-time-display" class="text-blue-400 text-2xl font-mono mb-10">Total Time: 0:00</p>
+                
+                <div class="bg-white/5 rounded-3xl p-8 border border-white/10 text-left backdrop-blur-sm">
+                    <h3 class="text-xl font-bold mb-6 flex items-center text-slate-300">
+                        <span class="mr-3 text-blue-400">⚡</span> FASTEST OPERATORS
+                    </h3>
+                    <div id="final-leaderboard" class="space-y-3"></div>
+                </div>
+
+                <button 
+                    onclick="location.reload()"
+                    class="mt-12 bg-blue-600 text-white px-12 py-4 rounded-2xl font-black hover:bg-blue-500 transition-all transform hover:scale-105 active:scale-95 shadow-xl shadow-blue-600/30"
+                >
+                    START NEW RUN
+                </button>
+            </div>
+        </div>
     </div>
-  );
-}
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+
+        // Global Game State
+        const questionPool = [
+            { topic: "Terminology", q: "In a solution of salt water, what is the 'water' specifically called?", a: "solvent" },
+            { topic: "Terminology", q: "In a solution of salt water, what is the 'salt' specifically called?", a: "solute" },
+            { topic: "Identification", q: "In a mixture of 5g sugar and 100g water, which substance is the solute?", a: "sugar" },
+            { topic: "Identification", q: "In a mixture of 10mL lemon juice and 200mL water, which substance is the solvent?", a: "water" },
+            { topic: "Identification", q: "In the alloy 'Brass', the substance present in the largest amount is the ________.", a: "solvent" },
+            { topic: "Identification", q: "Air is a solution. Since Nitrogen makes up 78% of air, Nitrogen is considered the ________.", a: "solvent" },
+            { topic: "Identification", q: "In a bottle of 70% Isopropyl Alcohol, the 30% portion that is water is considered the ________.", a: "solute" },
+            { topic: "Identification", q: "In carbonated water, the dissolved Carbon Dioxide gas is the ________.", a: "solute" },
+            { topic: "Identification", q: "Humid air contains water vapor dissolved in dry air. In this case, the water vapor is the ________.", a: "solute" },
+            { topic: "Identification", q: "In 'Steel', small amounts of Carbon are dissolved in Iron. Iron is the ________.", a: "solvent" },
+            { topic: "Solubility Factors", q: "Increasing the temperature of a liquid solvent usually makes solid solutes dissolve ________.", a: "faster" },
+            { topic: "Solubility Factors", q: "Crushing a solute into a fine powder increases the ________ area.", a: "surface" },
+            { topic: "Solubility Factors", q: "The formal chemical term for stirring a solution is ________.", a: "agitation" },
+            { topic: "Molarity", q: "What is the molarity of a solution with 4 moles of solute in 2 liters of solution? (Round to thousandths)", a: "2" },
+            { topic: "Molarity", q: "What is the molarity of a solution with 1 mole of solute in 4 liters of solution? (Round to thousandths)", a: "0.25" },
+            { topic: "Molarity", q: "Calculate molarity: 0.5 moles of NaCl in 0.75 liters of solution. (Round to thousandths)", a: "0.667" },
+            { topic: "Molarity", q: "Calculate molarity: 1.25 moles of solute in 3.5 liters of solution. (Round to thousandths)", a: "0.357" },
+            { topic: "Molarity", q: "Calculate molarity: 0.225 moles of solute in 0.150 liters of solution. (Round to thousandths)", a: "1.5" },
+            { topic: "Molarity", q: "Calculate molarity: 5.6 moles of solute in 2.3 liters of solution. (Round to thousandths)", a: "2.435" },
+            { topic: "Molarity", q: "Calculate molarity: 0.045 moles of solute in 0.020 liters of solution. (Round to thousandths)", a: "2.25" },
+            { topic: "Molarity", q: "Calculate molarity: 2.15 moles of solute in 0.825 liters of solution. (Round to thousandths)", a: "2.606" },
+            { topic: "Molarity", q: "Calculate molarity: 0.88 moles of solute in 1.1 liters of solution. (Round to thousandths)", a: "0.8" },
+            { topic: "Molarity", q: "To calculate molarity, you divide ________ of solute by liters of solution.", a: "moles" },
+            { topic: "General Knowledge", q: "If a substance is able to be dissolved, it is said to be ________.", a: "soluble" },
+            { topic: "Solubility Rules", q: "All compounds containing the Nitrate (NO₃⁻) ion are always ________.", a: "soluble" },
+            { topic: "Solubility Rules", q: "True or False: Most Carbonates are insoluble unless paired with Group 1 metals.", a: "true" },
+            { topic: "Solubility Rules", q: "Compounds containing Group 1 metals are always ________ in water.", a: "soluble" },
+            { topic: "Solubility Rules", q: "Halides are soluble unless they pair with Silver, Mercury, or ________.", a: "lead" },
+            { topic: "Solubility Rules", q: "Is Silver Chloride (AgCl) soluble or insoluble in water?", a: "insoluble" },
+            { topic: "Solubility Rules", q: "True or False: All Sulfate compounds are soluble, with no exceptions.", a: "false" },
+            { topic: "Solubility Rules", q: "True or False: Hydroxides are generally insoluble unless paired with Group 1 or Barium.", a: "true" },
+            { topic: "Solubility Rules", q: "True or False: Most Phosphates are soluble in water.", a: "false" },
+            { topic: "Solubility Rules", q: "True or False: Ammonium (NH₄⁺) salts are always soluble.", a: "true" },
+            { topic: "Solubility Rules", q: "True or False: Silver Nitrate (AgNO₃) is insoluble in water.", a: "false" },
+            { topic: "Solubility Rules", q: "True or False: Lead (II) Iodide (PbI₂) will form a precipitate.", a: "true" },
+            { topic: "Solubility Rules", q: "True or False: All Acetates are soluble.", a: "true" },
+            { topic: "Solubility Rules", q: "True or False: Strontium Sulfate (SrSO₄) is insoluble.", a: "true" },
+            { topic: "Solubility Rules", q: "True or False: Magnesium Sulfide (MgS) is soluble.", a: "true" },
+            { topic: "Solubility Rules", q: "True or False: Potassium Hydroxide (KOH) is insoluble.", a: "false" },
+            { topic: "Solubility Rules", q: "True or False: Calcium Carbonate is insoluble.", a: "true" },
+            { topic: "Solubility Rules", q: "Is Barium Sulfate (BaSO₄) soluble or insoluble?", a: "insoluble" },
+            { topic: "Solubility Curves", q: "A solution containing the maximum amount of solute possible is ________.", a: "saturated" },
+            { topic: "Solubility Curves", q: "A solution containing less than the maximum amount of solute is ________.", a: "unsaturated" },
+            { topic: "Solubility Curves", q: "A solution containing more solute than solvent is ________.", a: "supersaturated" },
+            { topic: "Solubility Curves", q: "On a curve, if the point is ABOVE the line, it is ________.", a: "supersaturated" },
+            { topic: "Solubility Curves", q: "On a curve, if the point is BELOW the line, it is ________.", a: "unsaturated" },
+            { topic: "Solubility Curves", q: "Most solid solutes show ________ solubility as temperature increases.", a: "increased" },
+            { topic: "Solubility Curves", q: "To turn a saturated solution into an unsaturated one, you ________ the temperature.", a: "increase" },
+            { topic: "Solubility Curves", q: "True or False: Saturated solutions can have undissolved solute at the bottom.", a: "true" }
+        ];
+
+        let gameQuestions = [];
+        let currentIndex = 0;
+        let startTime = null;
+        let timerInterval = null;
+        let currentUser = null;
+
+        // Firebase Init
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'chem-escape-room';
+
+        // Auth
+        async function initAuth() {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
+        }
+
+        onAuthStateChanged(auth, (user) => {
+            currentUser = user;
+            if (user) syncLeaderboard();
+        });
+
+        initAuth();
+
+        // Game Functions
+        window.startGame = function() {
+            const nameInput = document.getElementById('player-name');
+            const name = nameInput.value.trim();
+            if (!name) return;
+
+            gameQuestions = [...questionPool].sort(() => Math.random() - 0.5).slice(0, 25);
+            currentIndex = 0;
+            startTime = Date.now();
+            
+            document.getElementById('display-name').textContent = name;
+            document.getElementById('landing-state').classList.add('hidden');
+            document.getElementById('playing-state').classList.remove('hidden');
+            
+            updateQuestionUI();
+            startTimer();
+        };
+
+        function startTimer() {
+            timerInterval = setInterval(() => {
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                document.getElementById('display-timer').textContent = `TIME: ${formatTime(elapsed)}`;
+            }, 1000);
+        }
+
+        function formatTime(s) {
+            const mins = Math.floor(s / 60);
+            const secs = s % 60;
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function updateQuestionUI() {
+            const q = gameQuestions[currentIndex];
+            const progress = (currentIndex / 25) * 100;
+
+            document.getElementById('display-topic').textContent = q.topic;
+            document.getElementById('display-question').textContent = q.q;
+            document.getElementById('display-station-count').textContent = `${currentIndex + 1} / 25`;
+            document.getElementById('display-progress-pct').textContent = `${Math.round(progress)}%`;
+            document.getElementById('progress-bar').style.width = `${progress}%`;
+            document.getElementById('answer-input').value = '';
+            document.getElementById('feedback-text').classList.add('hidden');
+            document.getElementById('answer-input').focus();
+        }
+
+        window.checkAnswer = async function() {
+            const userInput = document.getElementById('answer-input').value.trim().toLowerCase();
+            const correctAnswer = gameQuestions[currentIndex].a.toLowerCase();
+            const feedback = document.getElementById('feedback-text');
+            const card = document.getElementById('question-card');
+
+            if (userInput === correctAnswer) {
+                feedback.textContent = "✅ Lock Disengaged!";
+                feedback.className = "mt-4 text-center font-bold text-green-600";
+                feedback.classList.remove('hidden');
+
+                if (currentIndex + 1 < gameQuestions.length) {
+                    setTimeout(() => {
+                        currentIndex++;
+                        updateQuestionUI();
+                    }, 600);
+                } else {
+                    finishGame();
+                }
+            } else {
+                feedback.textContent = "❌ Access Denied!";
+                feedback.className = "mt-4 text-center font-bold text-red-600";
+                feedback.classList.remove('hidden');
+                card.classList.add('animate-shake', 'border-red-300');
+                setTimeout(() => card.classList.remove('animate-shake', 'border-red-300'), 500);
+            }
+        };
+
+        async function finishGame() {
+            clearInterval(timerInterval);
+            const duration = Math.floor((Date.now() - startTime) / 1000);
+            const name = document.getElementById('player-name').value.trim();
+
+            document.getElementById('playing-state').classList.add('hidden');
+            document.getElementById('finished-state').classList.remove('hidden');
+            document.getElementById('final-time-display').textContent = `Total Time: ${formatTime(duration)}`;
+
+            if (currentUser) {
+                try {
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'), {
+                        name,
+                        seconds: duration,
+                        timestamp: Date.now(),
+                        uid: currentUser.uid
+                    });
+                } catch (e) {
+                    console.error("Save error:", e);
+                }
+            }
+        }
+
+        function syncLeaderboard() {
+            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'));
+            onSnapshot(q, (snapshot) => {
+                const docs = snapshot.docs.map(d => d.data());
+                const sorted = docs.sort((a, b) => a.seconds - b.seconds).slice(0, 10);
+                
+                const listHtml = sorted.map((entry, i) => `
+                    <div class="flex justify-between text-sm bg-slate-50 p-2 rounded-lg items-center">
+                        <span class="font-bold text-slate-700 truncate max-w-[150px]">${i + 1}. ${entry.name}</span>
+                        <span class="font-mono text-blue-600 font-bold">${formatTime(entry.seconds)}</span>
+                    </div>
+                `).join('');
+
+                const finalHtml = sorted.map((entry, i) => {
+                    const isMe = entry.name === document.getElementById('player-name').value;
+                    return `
+                    <div class="flex justify-between items-center p-4 rounded-xl ${isMe ? 'bg-blue-600 shadow-lg' : 'bg-white/5 border border-white/5'}">
+                        <div class="flex items-center truncate mr-4">
+                            <span class="w-8 font-mono text-xs opacity-50">${i + 1}.</span>
+                            <span class="font-bold text-lg truncate">${entry.name}</span>
+                        </div>
+                        <span class="font-mono text-xl font-bold">${formatTime(entry.seconds)}</span>
+                    </div>
+                    `;
+                }).join('');
+
+                document.getElementById('leaderboard-list').innerHTML = listHtml || '<p class="text-xs text-slate-300 italic">No records yet.</p>';
+                document.getElementById('final-leaderboard').innerHTML = finalHtml;
+            });
+        }
+
+        // Enter key listener
+        document.getElementById('answer-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') checkAnswer();
+        });
+        document.getElementById('player-name').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') startGame();
+        });
+    </script>
+</body>
+</html>
